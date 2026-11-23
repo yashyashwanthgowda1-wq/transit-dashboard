@@ -1,0 +1,1555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TransitIQ · Transit Operations Overview</title>
+<meta name="description" content="Public Transportation Data Visualization Dashboard using MapReduce">
+<!-- Inline favicon (avoids a /favicon.ico 404 in the console) -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230B2545'/%3E%3Crect x='8' y='7' width='16' height='15' rx='3' fill='none' stroke='white' stroke-width='2'/%3E%3Cpath d='M8 15h16' stroke='white' stroke-width='2'/%3E%3Ccircle cx='12' cy='25' r='2' fill='white'/%3E%3Ccircle cx='20' cy='25' r='2' fill='white'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<style>
+/* =====================================================================
+   DESIGN TOKENS
+   ===================================================================== */
+:root {
+  --bg: #F6F8FB;
+  --card: #FFFFFF;
+  --border: #E5E9F0;
+  --grid: #EEF2F7;
+  --navy: #0B2545;
+  --navy-2: #12305A;
+  --blue: #2563EB;
+  --blue-soft: #EFF4FF;
+  --teal: #0D9488;
+  --teal-soft: #E6F6F4;
+  --amber: #D97706;
+  --amber-soft: #FEF5E7;
+  --red: #DC2626;
+  --red-soft: #FDECEC;
+  --green: #16A34A;
+  --green-soft: #E8F7EE;
+  --violet: #7C3AED;
+  --violet-soft: #F3EEFF;
+  --text: #0F172A;
+  --text-2: #334155;
+  --muted: #64748B;
+  --radius: 12px;
+  --shadow: 0 1px 2px rgba(15, 23, 42, .04), 0 1px 3px rgba(15, 23, 42, .03);
+  --shadow-hover: 0 4px 12px rgba(15, 23, 42, .06), 0 1px 3px rgba(15, 23, 42, .04);
+  --sidebar-w: 240px;
+  --font: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+button, select, input { font-family: inherit; font-size: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+svg { flex-shrink: 0; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* =====================================================================
+   SIDEBAR
+   ===================================================================== */
+.sidebar {
+  position: fixed; inset: 0 auto 0 0;
+  width: var(--sidebar-w);
+  background: var(--navy);
+  color: #fff;
+  display: flex; flex-direction: column;
+  padding: 24px 16px;
+  z-index: 30;
+}
+.brand { display: flex; align-items: center; gap: 12px; padding: 0 8px 24px; }
+.brand-mark {
+  width: 36px; height: 36px; border-radius: 10px;
+  background: linear-gradient(135deg, var(--blue), #1D4ED8);
+  display: grid; place-items: center;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, .4);
+}
+.brand-name { font-weight: 700; font-size: 17px; letter-spacing: -.01em; }
+.brand-sub { font-size: 11.5px; color: rgba(255,255,255,.55); margin-top: -2px; }
+
+.nav-label {
+  font-size: 11px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+  color: rgba(255,255,255,.4); padding: 8px 12px;
+}
+.nav { display: flex; flex-direction: column; gap: 2px; }
+.nav a {
+  position: relative;
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 12px; border-radius: 8px;
+  color: rgba(255,255,255,.68); text-decoration: none; font-weight: 500;
+  transition: background .15s, color .15s;
+  white-space: nowrap;
+}
+.nav a:hover { background: rgba(255,255,255,.06); color: #fff; }
+.nav a.active { background: rgba(255,255,255,.1); color: #fff; }
+.nav a.active::before {
+  content: ""; position: absolute; left: -16px; top: 8px; bottom: 8px;
+  width: 3px; border-radius: 0 3px 3px 0; background: #60A5FA;
+}
+.nav a svg { opacity: .85; }
+.sidebar-footer {
+  margin-top: auto; padding: 16px 12px 0;
+  border-top: 1px solid rgba(255,255,255,.08);
+  font-size: 11.5px; color: rgba(255,255,255,.45); line-height: 1.6;
+}
+
+/* =====================================================================
+   MAIN + HEADER
+   ===================================================================== */
+.main { margin-left: var(--sidebar-w); min-height: 100vh; display: flex; flex-direction: column; }
+
+.topbar {
+  position: sticky; top: 0; z-index: 20;
+  background: rgba(246, 248, 251, .88);
+  backdrop-filter: saturate(180%) blur(10px);
+  -webkit-backdrop-filter: saturate(180%) blur(10px);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 32px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+}
+.crumbs { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.crumbs .sep { color: #CBD5E1; }
+.crumbs .here { color: var(--text-2); font-weight: 500; }
+.page-title { font-size: 20px; font-weight: 700; letter-spacing: -.015em; margin-top: 2px; }
+
+.topbar-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 32px; padding: 0 12px; border-radius: 999px;
+  font-size: 12.5px; font-weight: 500; white-space: nowrap;
+  border: 1px solid var(--border); background: var(--card); color: var(--text-2);
+}
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; background: #94A3B8; }
+.pill.ok   { background: var(--green-soft); border-color: #BFE6CD; color: #15803D; }
+.pill.ok .dot { background: var(--green); box-shadow: 0 0 0 3px rgba(22,163,74,.18); }
+.pill.err  { background: var(--red-soft); border-color: #F5C2C2; color: #B91C1C; }
+.pill.err .dot { background: var(--red); }
+.updated { font-size: 12px; color: var(--muted); padding: 0 4px; white-space: nowrap; }
+
+.btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 36px; padding: 0 14px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--card);
+  font-weight: 500; font-size: 13px; color: var(--text-2);
+  cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s;
+  white-space: nowrap;
+}
+.btn:hover { background: #F8FAFC; border-color: #D5DCE6; }
+.btn:disabled { opacity: .6; cursor: default; }
+.btn-primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+.btn-primary:hover { background: #1D4ED8; border-color: #1D4ED8; }
+.btn.spinning svg { animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.content { padding: 24px 32px 8px; max-width: 1480px; width: 100%; }
+
+/* Error banner */
+.banner {
+  display: none; align-items: flex-start; gap: 12px;
+  background: var(--red-soft); border: 1px solid #F5C2C2; color: #7F1D1D;
+  border-radius: var(--radius); padding: 14px 16px; margin-bottom: 24px;
+}
+.banner.show { display: flex; }
+.banner strong { display: block; color: #991B1B; font-weight: 600; }
+.banner code {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12.5px;
+  background: #fff; border: 1px solid #F5C2C2; border-radius: 6px; padding: 1px 6px;
+}
+.banner .detail { font-size: 12.5px; color: #B91C1C; margin-top: 4px; opacity: .85; }
+.banner .btn { margin-left: auto; height: 32px; }
+
+/* =====================================================================
+   SECTIONS & CARDS
+   ===================================================================== */
+section { scroll-margin-top: 96px; margin-bottom: 40px; }
+.section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.section-head h2 { font-size: 16px; font-weight: 600; letter-spacing: -.01em; }
+.section-head p { font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+.card {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 20px 24px;
+  transition: box-shadow .2s, border-color .2s;
+  min-width: 0;
+}
+.card:hover { box-shadow: var(--shadow-hover); }
+.card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.card-title { font-size: 14px; font-weight: 600; }
+.card-sub { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+
+.grid { display: grid; gap: 16px; }
+.g-2-1 { grid-template-columns: 2fr 1fr; }
+.g-3-2 { grid-template-columns: 3fr 2fr; }
+.g-1-1 { grid-template-columns: 1fr 1fr; }
+.mt-16 { margin-top: 16px; }
+
+.chart-box { position: relative; height: 300px; }
+.chart-box.tall { height: 340px; }
+
+/* Inline chart legend */
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.legend i.line { height: 3px; border-radius: 2px; width: 14px; }
+.legend i.dash { height: 0; width: 14px; border-top: 2px dashed var(--amber); border-radius: 0; }
+
+/* =====================================================================
+   KPI CARDS
+   ===================================================================== */
+.kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 16px; }
+.kpi { padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+.kpi-top { display: flex; align-items: center; gap: 10px; }
+.kpi-icon { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; }
+.kpi-label { font-size: 12.5px; font-weight: 500; color: var(--muted); }
+.kpi-value { font-size: 24px; font-weight: 700; letter-spacing: -.02em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.kpi-sub { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.kpi-sub b { color: var(--text-2); font-weight: 600; }
+
+.tone-blue   { background: var(--blue-soft);   color: var(--blue); }
+.tone-teal   { background: var(--teal-soft);   color: var(--teal); }
+.tone-amber  { background: var(--amber-soft);  color: var(--amber); }
+.tone-red    { background: var(--red-soft);    color: var(--red); }
+.tone-navy   { background: #E9EEF5;            color: var(--navy); }
+.tone-violet { background: var(--violet-soft); color: var(--violet); }
+
+/* =====================================================================
+   INSIGHTS
+   ===================================================================== */
+.insights { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+.insight { display: flex; gap: 14px; padding: 18px 20px; }
+.insight .kpi-icon { width: 32px; height: 32px; border-radius: 8px; }
+.insight-kicker { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.insight-text { font-size: 13.5px; color: var(--text-2); margin-top: 4px; line-height: 1.5; }
+.insight-text b { color: var(--text); font-weight: 600; }
+
+/* =====================================================================
+   TABLES
+   ===================================================================== */
+.table-wrap { overflow: auto; border: 1px solid var(--border); border-radius: 10px; }
+.table-wrap.scroll { max-height: 520px; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: #F8FAFC; color: var(--muted);
+  font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em;
+  text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+tbody td { padding: 11px 14px; border-bottom: 1px solid #F1F4F8; white-space: nowrap; color: var(--text-2); }
+tbody tr:last-child td { border-bottom: 0; }
+tbody tr { transition: background .12s; }
+.zebra tbody tr:nth-child(even) td { background: #FAFBFD; }
+tbody tr:hover td { background: #F3F6FB !important; }
+th.r, td.r { text-align: right; }
+td.strong { color: var(--text); font-weight: 600; }
+td.mono, .mono { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 12.5px; }
+
+th.sortable { cursor: pointer; user-select: none; transition: color .15s; }
+th.sortable:hover { color: var(--text); }
+th.sortable .arrow { display: inline-block; width: 10px; margin-left: 4px; opacity: .35; }
+th.sortable[aria-sort="ascending"] .arrow,
+th.sortable[aria-sort="descending"] .arrow { opacity: 1; color: var(--blue); }
+th.sortable[aria-sort="ascending"], th.sortable[aria-sort="descending"] { color: var(--text); }
+
+.route-chip { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; color: var(--text); }
+.route-chip i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+.share { display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
+.share-bar { width: 90px; height: 6px; background: var(--grid); border-radius: 999px; overflow: hidden; }
+.share-bar > div { height: 100%; background: var(--blue); border-radius: 999px; transition: width .5s ease; }
+.share .num { min-width: 46px; text-align: right; }
+
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+.badge.green { background: var(--green-soft); color: #15803D; }
+.badge.amber { background: var(--amber-soft); color: #B45309; }
+.badge.red   { background: var(--red-soft);   color: #B91C1C; }
+.badge.blue  { background: var(--blue-soft);  color: #1D4ED8; }
+.badge.navy  { background: #E9EEF5;           color: var(--navy); }
+.badge .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+.empty { padding: 48px 16px; text-align: center; color: var(--muted); }
+.empty svg { color: #CBD5E1; margin-bottom: 8px; }
+.empty strong { display: block; color: var(--text-2); font-weight: 600; margin-bottom: 2px; }
+
+/* =====================================================================
+   TRIP RECORDS TOOLBAR
+   ===================================================================== */
+.toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 16px; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.control {
+  height: 36px; border: 1px solid var(--border); border-radius: 8px; background: #fff;
+  padding: 0 12px; min-width: 140px; transition: border-color .15s, box-shadow .15s;
+}
+.control:hover { border-color: #D5DCE6; }
+.control:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(37,99,235,.15); }
+select.control { padding-right: 30px; appearance: none; -webkit-appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center; }
+.search { position: relative; flex: 1; min-width: 220px; }
+.search svg { position: absolute; left: 11px; bottom: 11px; color: var(--muted); pointer-events: none; }
+.search .control { width: 100%; padding-left: 34px; }
+.toolbar .btn { align-self: flex-end; }
+.toolbar .spacer { flex: 1; }
+
+.stat-strip {
+  display: none; grid-template-columns: repeat(4, minmax(0, 1fr)) 1.6fr; gap: 0;
+  border: 1px solid var(--border); border-radius: 10px; margin-bottom: 16px; overflow: hidden;
+  background: linear-gradient(180deg, #FBFCFE, #fff);
+}
+.stat-strip.show { display: grid; }
+.stat { padding: 14px 18px; border-right: 1px solid var(--border); min-width: 0; }
+.stat:last-child { border-right: 0; }
+.stat-label { font-size: 11.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.stat-value { font-size: 18px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+.spark-box { position: relative; height: 44px; margin-top: 4px; }
+
+.table-foot { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin-top: 12px; }
+
+/* =====================================================================
+   DATA PIPELINE DIAGRAM
+   ===================================================================== */
+.pipeline { display: flex; align-items: stretch; gap: 0; overflow-x: auto; padding: 4px 2px 8px; }
+.p-step {
+  flex: 1 1 0; min-width: 150px;
+  border: 1px solid var(--border); border-radius: 10px; background: #fff;
+  padding: 16px; display: flex; flex-direction: column; gap: 8px;
+  transition: border-color .2s, transform .2s, box-shadow .2s;
+}
+.p-step:hover { border-color: #BFD3FB; transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+.p-step .kpi-icon { width: 32px; height: 32px; border-radius: 8px; }
+.p-title { font-weight: 600; font-size: 13.5px; }
+.p-sub { font-size: 12px; color: var(--muted); line-height: 1.45; }
+.p-step.mr { flex-grow: 1.7; min-width: 250px; background: linear-gradient(180deg, #F7FAFF, #fff); border-color: #CFDDFB; }
+.mr-phases { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 2px; }
+.mr-phase { padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; background: var(--blue-soft); color: #1D4ED8; border: 1px solid #D6E2FD; }
+.mr-phases .a { color: #94A3B8; font-size: 12px; }
+.p-arrow { display: grid; place-items: center; width: 36px; flex-shrink: 0; color: #94A3B8; }
+
+/* =====================================================================
+   SKELETON LOADERS
+   ===================================================================== */
+.skel {
+  display: inline-block; border-radius: 6px;
+  background: linear-gradient(90deg, #EEF2F7 25%, #F6F8FB 50%, #EEF2F7 75%);
+  background-size: 200% 100%; animation: shimmer 1.3s ease-in-out infinite;
+  color: transparent !important;
+}
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+.chart-box.loading canvas { opacity: 0; }
+.chart-box.loading::after {
+  content: ""; position: absolute; inset: 0; border-radius: 8px;
+  background: linear-gradient(90deg, #EEF2F7 25%, #F6F8FB 50%, #EEF2F7 75%);
+  background-size: 200% 100%; animation: shimmer 1.3s ease-in-out infinite;
+}
+canvas { transition: opacity .3s; }
+
+/* =====================================================================
+   FOOTER
+   ===================================================================== */
+.footer {
+  margin-top: auto; padding: 20px 32px; border-top: 1px solid var(--border);
+  color: var(--muted); font-size: 12.5px; display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+}
+
+/* =====================================================================
+   RESPONSIVE
+   ===================================================================== */
+@media (max-width: 1400px) {
+  .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .insights { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 1180px) {
+  .g-3-2 { grid-template-columns: 1fr; }
+}
+/* Sidebar collapses into a top bar */
+@media (max-width: 1023px) {
+  .sidebar {
+    position: sticky; top: 0; inset: auto; width: 100%;
+    flex-direction: row; align-items: center; gap: 16px;
+    padding: 10px 16px;
+  }
+  .brand { padding: 0; }
+  .brand-sub, .nav-label, .sidebar-footer { display: none; }
+  .nav { flex-direction: row; overflow-x: auto; scrollbar-width: none; flex: 1; }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav a { padding: 7px 10px; font-size: 13px; }
+  .nav a.active::before { left: 10px; right: 10px; top: auto; bottom: -10px; width: auto; height: 3px; border-radius: 3px 3px 0 0; }
+  .main { margin-left: 0; }
+  .topbar { position: static; padding: 16px; }
+  .content { padding: 16px 16px 8px; }
+  .footer { padding: 16px; }
+  section { scroll-margin-top: 72px; }
+  .g-2-1, .g-1-1 { grid-template-columns: 1fr; }
+  .stat-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .stat { border-bottom: 1px solid var(--border); }
+  .stat.spark-stat { grid-column: 1 / -1; border-bottom: 0; }
+  .pipeline { flex-direction: column; overflow: visible; }
+  .p-step, .p-step.mr { min-width: 0; }
+  .p-arrow { width: 100%; height: 28px; transform: rotate(90deg); }
+}
+@media (max-width: 640px) {
+  .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .insights { grid-template-columns: 1fr; }
+  .kpi { padding: 16px; }
+  .kpi-value { font-size: 20px; }
+  .card { padding: 16px; }
+  .chart-box, .chart-box.tall { height: 260px; }
+  .nav a span { display: none; }
+  .brand-name { font-size: 15px; }
+  .toolbar .field, .toolbar .control, .toolbar .btn { width: 100%; }
+  .toolbar .spacer { display: none; }
+  .updated { display: none; }
+}
+@media (max-width: 400px) {
+  .kpis { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+  html { scroll-behavior: auto; }
+}
+</style>
+</head>
+
+<body>
+
+<!-- =====================================================================
+     SIDEBAR
+     ===================================================================== -->
+<aside class="sidebar" aria-label="Main navigation">
+  <div class="brand">
+    <div class="brand-mark" aria-hidden="true">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="14" rx="3"/><path d="M4 11h16M8 21v-4M16 21v-4"/><circle cx="8.5" cy="14" r=".6" fill="#fff"/><circle cx="15.5" cy="14" r=".6" fill="#fff"/></svg>
+    </div>
+    <div>
+      <div class="brand-name">TransitIQ</div>
+      <div class="brand-sub">Big Data Analytics</div>
+    </div>
+  </div>
+
+  <div class="nav-label">Dashboard</div>
+  <nav class="nav" id="nav">
+    <a href="#overview" data-section="overview" class="active">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+      <span>Overview</span></a>
+    <a href="#ridership" data-section="ridership">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 6-6"/></svg>
+      <span>Ridership</span></a>
+    <a href="#routes" data-section="routes">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H17a3.5 3.5 0 0 0 0-7H7a3.5 3.5 0 0 1 0-7h8.5"/></svg>
+      <span>Routes</span></a>
+    <a href="#operations" data-section="operations">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+      <span>Operations</span></a>
+    <a href="#trips" data-section="trips">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/></svg>
+      <span>Trip Records</span></a>
+    <a href="#pipeline" data-section="pipeline">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></svg>
+      <span>Data Pipeline</span></a>
+  </nav>
+
+  <div class="sidebar-footer">Powered by MapReduce · SQLite · Flask</div>
+</aside>
+
+<!-- =====================================================================
+     MAIN
+     ===================================================================== -->
+<div class="main">
+
+  <header class="topbar">
+    <div>
+      <div class="crumbs" aria-label="Breadcrumb">
+        <span>TransitIQ</span><span class="sep">/</span><span>Dashboards</span><span class="sep">/</span><span class="here">Operations Overview</span>
+      </div>
+      <h1 class="page-title">Transit Operations Overview</h1>
+    </div>
+    <div class="topbar-right">
+      <span class="pill" id="dateRange" title="Date range covered by the dataset">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+        <span id="dateRangeText"><span class="skel" style="width:150px;height:12px"></span></span>
+      </span>
+      <span class="pill" id="apiStatus"><span class="dot"></span><span id="apiStatusText">Connecting…</span></span>
+      <span class="updated" id="lastUpdated">Last updated —</span>
+      <button class="btn btn-primary" id="refreshBtn" type="button">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>
+        Refresh
+      </button>
+    </div>
+  </header>
+
+  <main class="content">
+
+    <!-- Error banner -->
+    <div class="banner" id="errorBanner" role="alert">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#DC2626" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>
+      <div>
+        <strong>Couldn't load data from the API.</strong>
+        <div>Run <code>python run_all.py</code>, then <code>python backend/app.py</code></div>
+        <div class="detail" id="errorDetail"></div>
+      </div>
+      <button class="btn" type="button" id="retryBtn">Retry</button>
+    </div>
+
+    <!-- ================= OVERVIEW ================= -->
+    <section id="overview">
+      <div class="section-head">
+        <div><h2>Overview</h2><p>Network-wide totals produced by the MapReduce jobs</p></div>
+      </div>
+
+      <div class="kpis" id="kpis">
+        <!-- Filled by renderKpis(); skeletons shown while loading -->
+      </div>
+
+      <div class="section-head mt-16" style="margin-top:24px">
+        <div><h2>Key Insights</h2><p>Generated automatically from the latest data</p></div>
+      </div>
+      <div class="insights" id="insights"></div>
+    </section>
+
+    <!-- ================= RIDERSHIP ================= -->
+    <section id="ridership">
+      <div class="section-head">
+        <div><h2>Ridership</h2><p>When people travel: by hour, by weekday and by date</p></div>
+      </div>
+
+      <div class="grid g-2-1">
+        <div class="card">
+          <div class="card-head">
+            <div><div class="card-title">Passengers by Hour</div><div class="card-sub">Total boardings for each hour of the day</div></div>
+            <div class="legend"><span><i style="background:#2563EB"></i>Peak hours</span><span><i style="background:#C7D2E3"></i>Other hours</span></div>
+          </div>
+          <div class="chart-box"><canvas id="hourlyChart" aria-label="Passengers by hour bar chart" role="img"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div><div class="card-title">Passengers by Weekday</div><div class="card-sub">Total boardings per day of week</div></div>
+            <div class="legend"><span><i style="background:#2563EB"></i>Weekday</span><span><i style="background:#0D9488"></i>Weekend</span></div>
+          </div>
+          <div class="chart-box"><canvas id="daysChart" aria-label="Passengers by weekday bar chart" role="img"></canvas></div>
+        </div>
+      </div>
+
+      <div class="card mt-16">
+        <div class="card-head">
+          <div><div class="card-title">Daily Ridership Trend</div><div class="card-sub" id="dailySub">Passengers per day</div></div>
+          <div class="legend"><span><i class="line" style="background:#2563EB"></i>Daily passengers</span><span><i class="dash"></i>7-day moving average</span></div>
+        </div>
+        <div class="chart-box tall"><canvas id="dailyChart" aria-label="Daily ridership line chart" role="img"></canvas></div>
+      </div>
+    </section>
+
+    <!-- ================= ROUTES ================= -->
+    <section id="routes">
+      <div class="section-head">
+        <div><h2>Routes</h2><p>Passengers, revenue and punctuality for every route</p></div>
+      </div>
+
+      <div class="grid g-3-2">
+        <div class="card">
+          <div class="card-head">
+            <div><div class="card-title">Route Performance</div><div class="card-sub">Click a column header to sort</div></div>
+          </div>
+          <div class="table-wrap">
+            <table id="routeTable">
+              <thead>
+                <tr>
+                  <th class="sortable" data-key="route" aria-sort="none">Route<span class="arrow"></span></th>
+                  <th class="sortable r" data-key="passengers" aria-sort="none">Passengers<span class="arrow"></span></th>
+                  <th class="sortable r" data-key="revenue" aria-sort="none">Revenue<span class="arrow"></span></th>
+                  <th class="sortable r" data-key="delay" aria-sort="none">Avg Delay<span class="arrow"></span></th>
+                  <th class="sortable r" data-key="share" aria-sort="none">Revenue Share<span class="arrow"></span></th>
+                </tr>
+              </thead>
+              <tbody id="routeTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div><div class="card-title">Revenue Share</div><div class="card-sub">Each route's portion of total fare revenue</div></div>
+          </div>
+          <div class="chart-box tall"><canvas id="revenueChart" aria-label="Revenue share doughnut chart" role="img"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= OPERATIONS ================= -->
+    <section id="operations">
+      <div class="section-head">
+        <div><h2>Operations</h2><p>Stop demand and service punctuality</p></div>
+      </div>
+
+      <div class="grid g-1-1">
+        <div class="card">
+          <div class="card-head">
+            <div><div class="card-title">Busiest Stops</div><div class="card-sub">Total boardings per stop, highest first</div></div>
+          </div>
+          <div class="chart-box tall"><canvas id="stopsChart" aria-label="Busiest stops horizontal bar chart" role="img"></canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-head">
+            <div><div class="card-title">Average Delay by Route</div><div class="card-sub">Mean delay in minutes (MapReduce AVG reducer)</div></div>
+            <div class="legend">
+              <span><i style="background:#16A34A"></i>&lt; 5 min</span>
+              <span><i style="background:#D97706"></i>5–6 min</span>
+              <span><i style="background:#DC2626"></i>&gt; 6 min</span>
+            </div>
+          </div>
+          <div class="chart-box tall"><canvas id="delayChart" aria-label="Average delay by route bar chart" role="img"></canvas></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= TRIP RECORDS ================= -->
+    <section id="trips">
+      <div class="section-head">
+        <div><h2>Trip Records</h2><p>Raw trips from the SQLite <span class="mono">trips</span> table, most recent first</p></div>
+      </div>
+
+      <div class="card">
+        <div class="toolbar">
+          <div class="field">
+            <label for="routeSelect">Route</label>
+            <select class="control" id="routeSelect"><option value="">All routes</option></select>
+          </div>
+          <div class="field">
+            <label for="stopSelect">Stop</label>
+            <select class="control" id="stopSelect"><option value="">All stops</option></select>
+          </div>
+          <div class="field">
+            <label for="limitSelect">Rows</label>
+            <select class="control" id="limitSelect" style="min-width:96px">
+              <option value="20">20</option><option value="50">50</option>
+              <option value="100">100</option><option value="200">200</option>
+            </select>
+          </div>
+          <div class="field search">
+            <label for="searchInput">Search loaded rows</label>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input class="control" id="searchInput" type="search" placeholder="Trip ID, date, stop, day…" autocomplete="off">
+          </div>
+          <button class="btn" id="exportBtn" type="button">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 21h16"/></svg>
+            Export CSV
+          </button>
+        </div>
+
+        <!-- Shown only when a route is selected (/api/route/<id>) -->
+        <div class="stat-strip" id="routeStrip">
+          <div class="stat"><div class="stat-label">Trips</div><div class="stat-value" id="rsTrips">—</div></div>
+          <div class="stat"><div class="stat-label">Passengers</div><div class="stat-value" id="rsPassengers">—</div></div>
+          <div class="stat"><div class="stat-label">Revenue</div><div class="stat-value" id="rsRevenue">—</div></div>
+          <div class="stat"><div class="stat-label">Avg Delay</div><div class="stat-value" id="rsDelay">—</div></div>
+          <div class="stat spark-stat">
+            <div class="stat-label" id="rsSparkLabel">Passengers by hour</div>
+            <div class="spark-box"><canvas id="sparkChart" aria-label="Route passengers by hour sparkline" role="img"></canvas></div>
+          </div>
+        </div>
+
+        <div class="table-wrap scroll">
+          <table class="zebra">
+            <thead>
+              <tr>
+                <th>Trip ID</th><th>Date</th><th>Day</th><th class="r">Hour</th><th>Route</th><th>Stop</th>
+                <th class="r">Passengers</th><th class="r">Fare</th><th class="r">Delay</th>
+              </tr>
+            </thead>
+            <tbody id="tripBody"></tbody>
+          </table>
+        </div>
+        <div class="table-foot">
+          <span id="tripCount">—</span>
+          <span>Delay: <span class="badge green">&lt; 5 min</span> <span class="badge amber">5–6 min</span> <span class="badge red">&gt; 6 min</span></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================= DATA PIPELINE ================= -->
+    <section id="pipeline">
+      <div class="section-head">
+        <div><h2>Data Pipeline</h2><p>How raw trip data becomes this dashboard</p></div>
+      </div>
+
+      <div class="card">
+        <div class="pipeline" id="pipelineDiagram">
+          <div class="p-step">
+            <div class="kpi-icon tone-navy"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg></div>
+            <div class="p-title">CSV Dataset</div>
+            <div class="p-sub"><span class="mono">transit_data.csv</span><br><span id="pCsv">raw trip records</span></div>
+          </div>
+          <div class="p-arrow" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15M13 6l6 6-6 6"/></svg></div>
+          <div class="p-step mr">
+            <div class="kpi-icon tone-blue"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="6" r="2"/><circle cx="5" cy="18" r="2"/><circle cx="19" cy="12" r="2"/><path d="M7 6h3l4 6h3M7 18h3l4-6"/></svg></div>
+            <div class="p-title">MapReduce</div>
+            <div class="mr-phases">
+              <span class="mr-phase">Map</span><span class="a">→</span>
+              <span class="mr-phase">Shuffle</span><span class="a">→</span>
+              <span class="mr-phase">Reduce</span>
+            </div>
+            <div class="p-sub" id="pMr">key–value aggregation jobs</div>
+          </div>
+          <div class="p-arrow" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15M13 6l6 6-6 6"/></svg></div>
+          <div class="p-step">
+            <div class="kpi-icon tone-teal"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div>
+            <div class="p-title">SQLite Database</div>
+            <div class="p-sub"><span class="mono">transit.db</span><br>result tables + trips</div>
+          </div>
+          <div class="p-arrow" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15M13 6l6 6-6 6"/></svg></div>
+          <div class="p-step">
+            <div class="kpi-icon tone-amber"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/></svg></div>
+            <div class="p-title">Flask REST API</div>
+            <div class="p-sub"><span class="mono">/api/*</span><br>JSON endpoints over SQL</div>
+          </div>
+          <div class="p-arrow" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h15M13 6l6 6-6 6"/></svg></div>
+          <div class="p-step">
+            <div class="kpi-icon tone-violet"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M7 16v-4M12 16V8M17 16v-6"/></svg></div>
+            <div class="p-title">Dashboard</div>
+            <div class="p-sub">Chart.js visualisations<br>in the browser</div>
+          </div>
+        </div>
+
+        <div class="card-head" style="margin-top:24px">
+          <div><div class="card-title">MapReduce Job Runs</div><div class="card-sub">From the <span class="mono">job_runs</span> table</div></div>
+        </div>
+        <div class="table-wrap">
+          <table class="zebra">
+            <thead>
+              <tr><th>Job</th><th>Reducer type</th><th class="r">Output keys</th><th>Run time</th><th>Status</th></tr>
+            </thead>
+            <tbody id="jobsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="footer">
+    <span>© 2026 TransitIQ · Public Transportation Data Visualization Dashboard using MapReduce</span>
+    <span>CSV → MapReduce → SQLite → Flask → Chart.js</span>
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+/* =====================================================================
+   1. CONFIG & STATE
+   ===================================================================== */
+const COLORS = {
+  navy: "#0B2545", blue: "#2563EB", teal: "#0D9488", amber: "#D97706",
+  red: "#DC2626", green: "#16A34A", muted: "#64748B", text: "#0F172A",
+  grid: "#EEF2F7", mutedBar: "#C7D2E3",
+};
+// Categorical palette for routes (doughnut + table dots)
+const ROUTE_PALETTE = ["#0B2545", "#2563EB", "#0D9488", "#D97706", "#7C3AED", "#0EA5E9", "#DB2777", "#64748B",
+                       "#65A30D", "#9333EA", "#EA580C", "#0891B2"];
+const ERROR_HINT = "Run python run_all.py, then python backend/app.py";
+
+const state = {
+  charts: {},                                 // id -> Chart instance
+  routeRows: [],                              // merged route table data
+  routeColor: {},                             // route_id -> color
+  sort: { key: "revenue", dir: "desc" },
+  trips: [],                                  // rows loaded from /api/trips
+  visibleTrips: [],                           // rows after client-side search
+  loading: false,
+};
+
+const $ = (id) => document.getElementById(id);
+
+/* =====================================================================
+   2. API HELPERS
+   ===================================================================== */
+async function api(path) {
+  let res;
+  try {
+    res = await fetch(path, { headers: { Accept: "application/json" } });
+  } catch (e) {
+    throw new Error(`Network error while requesting ${path}`);
+  }
+  if (!res.ok) {
+    let msg = `${path} returned HTTP ${res.status}`;
+    try { const body = await res.json(); if (body && body.error) msg += ` – ${body.error}`; } catch (_) { /* not JSON */ }
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+/* =====================================================================
+   3. FORMATTERS (Indian number system)
+   ===================================================================== */
+const nf0 = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 0 });
+const nf2 = new Intl.NumberFormat("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const fmt = {
+  num: (n) => (n == null || isNaN(n)) ? "—" : nf0.format(n),
+  dec: (n, d = 2) => (n == null || isNaN(n)) ? "—" : Number(n).toLocaleString("en-IN", { minimumFractionDigits: d, maximumFractionDigits: d }),
+  /** Full rupees: ₹23,93,004 */
+  inr: (n) => (n == null || isNaN(n)) ? "—" : "₹" + nf0.format(n),
+  /** Compact rupees: ₹5.39 Cr / ₹44.05 L / ₹9,876 */
+  inrShort: (n) => {
+    if (n == null || isNaN(n)) return "—";
+    const a = Math.abs(n);
+    if (a >= 1e7) return "₹" + nf2.format(n / 1e7) + " Cr";
+    if (a >= 1e5) return "₹" + nf2.format(n / 1e5) + " L";
+    return "₹" + nf0.format(n);
+  },
+  /** Compact count for axis ticks: 2.4L, 1.2Cr, 12K */
+  numShort: (n) => {
+    const a = Math.abs(n);
+    if (a >= 1e7) return +(n / 1e7).toFixed(1) + " Cr";
+    if (a >= 1e5) return +(n / 1e5).toFixed(1) + " L";
+    if (a >= 1e3) return +(n / 1e3).toFixed(1) + "K";
+    return String(n);
+  },
+  pct: (n, d = 1) => (n == null || isNaN(n)) ? "—" : n.toFixed(d) + "%",
+  min: (n) => (n == null || isNaN(n)) ? "—" : fmt.dec(n) + " min",
+  hour: (h) => String(h).padStart(2, "0") + ":00",
+  /** "2026-01-05" -> Date (local, no timezone shift) */
+  parseISODate: (s) => { const [y, m, d] = String(s).split("-").map(Number); return new Date(y, m - 1, d); },
+  date: (s) => fmt.parseISODate(s).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
+  dateShort: (s) => fmt.parseISODate(s).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }),
+  dateLong: (s) => fmt.parseISODate(s).toLocaleDateString("en-GB", { weekday: "short", day: "2-digit", month: "short", year: "numeric" }),
+};
+
+/** Escape text before putting it into innerHTML */
+function esc(v) {
+  return String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/** Delay thresholds used everywhere: green < 5, amber 5–6, red > 6 */
+function delayLevel(min) {
+  if (min < 5) return "green";
+  if (min <= 6) return "amber";
+  return "red";
+}
+const DELAY_COLOR = { green: COLORS.green, amber: COLORS.amber, red: COLORS.red };
+
+const sum = (arr) => arr.reduce((a, b) => a + (Number(b) || 0), 0);
+
+/* =====================================================================
+   4. CHART.JS GLOBAL STYLE + BUILDERS
+   ===================================================================== */
+function setupChartDefaults() {
+  Chart.defaults.font.family = '"Inter", "Segoe UI", system-ui, sans-serif';
+  Chart.defaults.font.size = 12;
+  Chart.defaults.color = COLORS.muted;
+  Chart.defaults.borderColor = COLORS.grid;
+  Chart.defaults.maintainAspectRatio = false;
+  Chart.defaults.responsive = true;
+  Chart.defaults.plugins.legend.display = false;
+  Chart.defaults.animation.duration = 600;
+
+  const tt = Chart.defaults.plugins.tooltip;
+  tt.backgroundColor = "#0F172A";
+  tt.titleColor = "#fff";
+  tt.bodyColor = "#E2E8F0";
+  tt.titleFont = { weight: "600", size: 12 };
+  tt.bodyFont = { size: 12 };
+  tt.padding = 10;
+  tt.cornerRadius = 8;
+  tt.displayColors = false;
+  tt.caretSize = 5;
+
+  Chart.defaults.elements.bar.borderRadius = 6;
+  Chart.defaults.elements.bar.borderSkipped = false;
+}
+
+/** Standard cartesian scales: no vertical gridlines, light horizontal ones */
+function scales({ yFormat = fmt.numShort, xFormat = null, horizontal = false, yMax } = {}) {
+  const valueAxis = {
+    beginAtZero: true,
+    grid: { color: COLORS.grid, drawTicks: false },
+    border: { display: false },
+    ticks: { padding: 8, callback: (v) => yFormat(v) },
+    ...(yMax != null ? { suggestedMax: yMax } : {}),
+  };
+  const categoryAxis = {
+    grid: { display: false },
+    border: { display: false },
+    ticks: { padding: 6, ...(xFormat ? { callback: xFormat } : {}) },
+  };
+  return horizontal ? { x: valueAxis, y: categoryAxis } : { x: categoryAxis, y: valueAxis };
+}
+
+/** Destroy any existing chart on the canvas, then create a fresh one */
+function makeChart(id, config) {
+  if (state.charts[id]) state.charts[id].destroy();
+  const canvas = $(id);
+  state.charts[id] = new Chart(canvas.getContext("2d"), config);
+  canvas.closest(".chart-box")?.classList.remove("loading");
+  return state.charts[id];
+}
+
+function destroyChart(id) {
+  if (state.charts[id]) { state.charts[id].destroy(); delete state.charts[id]; }
+}
+
+/** Plugin: total value written in the centre of a doughnut */
+const centerTextPlugin = {
+  id: "centerText",
+  afterDraw(chart, _args, opts) {
+    if (!opts || !opts.value) return;
+    const { ctx, chartArea: { left, right, top, bottom } } = chart;
+    const x = (left + right) / 2, y = (top + bottom) / 2;
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillStyle = COLORS.muted;
+    ctx.font = '500 12px "Inter", "Segoe UI", sans-serif';
+    ctx.fillText(opts.label, x, y - 13);
+    ctx.fillStyle = COLORS.text;
+    ctx.font = '700 22px "Inter", "Segoe UI", sans-serif';
+    ctx.fillText(opts.value, x, y + 10);
+    ctx.restore();
+  },
+};
+
+/* =====================================================================
+   5. LOADING / STATUS UI
+   ===================================================================== */
+function setLoading(on) {
+  state.loading = on;
+  const btn = $("refreshBtn");
+  btn.disabled = on;
+  btn.classList.toggle("spinning", on);
+  if (on) {
+    document.querySelectorAll(".chart-box").forEach((b) => b.classList.add("loading"));
+    renderKpiSkeleton();
+    renderInsightSkeleton();
+    $("routeTableBody").innerHTML = skeletonRows(5, 8);
+    $("jobsBody").innerHTML = skeletonRows(5, 7);
+  }
+}
+
+function skeletonRows(cols, rows) {
+  const cell = `<td><span class="skel" style="width:70%;height:12px"></span></td>`;
+  return Array.from({ length: rows }, () => `<tr>${cell.repeat(cols)}</tr>`).join("");
+}
+
+function setStatus(kind) {
+  const pill = $("apiStatus");
+  pill.classList.remove("ok", "err");
+  if (kind === "ok")  { pill.classList.add("ok");  $("apiStatusText").textContent = "API Connected"; }
+  else if (kind === "err") { pill.classList.add("err"); $("apiStatusText").textContent = "API Offline"; }
+  else { $("apiStatusText").textContent = "Connecting…"; }
+}
+
+function showError(err) {
+  $("errorDetail").textContent = (err && err.message) ? `Details: ${err.message}` : "";
+  $("errorBanner").classList.add("show");
+  setStatus("err");
+  // Stop skeleton animations so the page doesn't look "stuck loading"
+  document.querySelectorAll(".chart-box.loading").forEach((b) => b.classList.remove("loading"));
+  document.querySelectorAll(".skel").forEach((s) => { s.classList.remove("skel"); s.textContent = "—"; s.style.width = "auto"; });
+  console.warn("[TransitIQ] " + ERROR_HINT, err);
+}
+
+function hideError() { $("errorBanner").classList.remove("show"); }
+
+/* =====================================================================
+   6. SECTION RENDERERS
+   ===================================================================== */
+const ICONS = {
+  users:  '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20a6.5 6.5 0 0 1 13 0"/><path d="M16 4.5a3.5 3.5 0 0 1 0 7M18 14a6 6 0 0 1 3.5 6"/></svg>',
+  rupee:  '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h12M6 9h12M14 20 7 13h2a5 5 0 0 0 0-9"/></svg>',
+  bus:    '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="14" rx="3"/><path d="M4 11h16M8 21v-4M16 21v-4"/></svg>',
+  clock:  '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  route:  '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="2.5"/><circle cx="18" cy="5" r="2.5"/><path d="M8.5 19H17a3.5 3.5 0 0 0 0-7H7a3.5 3.5 0 0 1 0-7h8.5"/></svg>',
+  alert:  '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
+  sun:    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17h18M7 17a5 5 0 0 1 10 0M12 4v3M4.9 8.9l2.1 2.1M19.1 8.9 17 11"/></svg>',
+  cal:    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
+  pie:    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12A9 9 0 1 1 12 3v9z"/><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"/></svg>',
+  timer:  '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M9 2h6"/></svg>',
+  inbox:  '<svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/></svg>',
+};
+
+/* ---------- KPI cards ---------- */
+function kpiCard({ icon, tone, label, value, sub }) {
+  return `<div class="card kpi">
+    <div class="kpi-top"><div class="kpi-icon tone-${tone}">${ICONS[icon]}</div><div class="kpi-label">${label}</div></div>
+    <div class="kpi-value">${value}</div>
+    <div class="kpi-sub">${sub}</div>
+  </div>`;
+}
+
+function renderKpiSkeleton() {
+  const sk = `<div class="card kpi">
+    <div class="kpi-top"><span class="skel" style="width:36px;height:36px;border-radius:50%"></span><span class="skel" style="width:90px;height:12px"></span></div>
+    <span class="skel" style="width:70%;height:24px"></span>
+    <span class="skel" style="width:85%;height:11px"></span></div>`;
+  $("kpis").innerHTML = sk.repeat(6);
+}
+
+function renderKpis(d) {
+  const s = d.summary;
+  const trips = Number(s.total_trips) || 0;
+  const days = d.daily.labels.length || 1;
+  const hourMap = Object.fromEntries(d.hourly.labels.map((l, i) => [l, d.hourly.values[i]]));
+  const routePax = Object.fromEntries(d.routes.labels.map((l, i) => [l, d.routes.values[i]]));
+  const worst = d.delays.labels.length ? { route: d.delays.labels[0], v: d.delays.values[0] } : null;
+
+  const cards = [
+    { icon: "users", tone: "blue", label: "Total Passengers", value: fmt.num(s.total_passengers),
+      sub: `<b>${trips ? fmt.dec(s.total_passengers / trips, 1) : "—"}</b> avg passengers per trip` },
+    { icon: "rupee", tone: "teal", label: "Total Revenue", value: fmt.inrShort(s.total_revenue),
+      sub: `<b>${trips ? fmt.inr(s.total_revenue / trips) : "—"}</b> avg revenue per trip` },
+    { icon: "bus", tone: "navy", label: "Total Trips", value: fmt.num(trips),
+      sub: `<b>${fmt.num(trips / days)}</b> trips per day over ${fmt.num(days)} days` },
+    { icon: "clock", tone: "violet", label: "Peak Hour", value: esc(s.peak_hour ?? "—"),
+      sub: `<b>${fmt.num(hourMap[s.peak_hour])}</b> passengers in this hour` },
+    { icon: "route", tone: "amber", label: "Busiest Route", value: esc(s.busiest_route ?? "—"),
+      sub: `<b>${fmt.num(routePax[s.busiest_route])}</b> riders · busiest stop: <b>${esc(s.busiest_stop ?? "—")}</b>` },
+    { icon: "alert", tone: "red", label: "Avg Delay", value: s.avg_delay != null ? fmt.dec(s.avg_delay) + " <span style='font-size:15px;font-weight:600;color:#64748B'>min</span>" : "—",
+      sub: worst ? `Worst: <b>${esc(worst.route)}</b> at ${fmt.min(worst.v)}` : "across all routes" },
+  ];
+  $("kpis").innerHTML = cards.map(kpiCard).join("");
+}
+
+/* ---------- Key insights (computed client-side) ---------- */
+function renderInsightSkeleton() {
+  const sk = `<div class="card insight"><span class="skel" style="width:32px;height:32px;border-radius:8px"></span>
+    <div style="flex:1;display:flex;flex-direction:column;gap:8px"><span class="skel" style="width:40%;height:10px"></span>
+    <span class="skel" style="width:95%;height:12px"></span><span class="skel" style="width:70%;height:12px"></span></div></div>`;
+  $("insights").innerHTML = sk.repeat(4);
+}
+
+function renderInsights(d) {
+  const out = [];
+
+  // 1. Morning & evening peaks and their share of daily traffic
+  const hours = d.hourly.labels.map((l, i) => ({ h: parseInt(l, 10), label: l, v: Number(d.hourly.values[i]) || 0 }));
+  const hourTotal = sum(hours.map((x) => x.v));
+  const best = (from, to) => hours.filter((x) => x.h >= from && x.h <= to).sort((a, b) => b.v - a.v)[0];
+  const am = best(5, 11), pm = best(15, 21);
+  if (am && pm && hourTotal) {
+    const share = (am.v + pm.v) / hourTotal * 100;
+    out.push({ icon: "sun", tone: "blue", kicker: "Commute peaks",
+      text: `Peaks at <b>${am.label}</b> and <b>${pm.label}</b> carry <b>${fmt.pct(share)}</b> of all daily traffic in just 2 hours.` });
+  }
+
+  // 2. Weekend vs weekday ridership (average per day type)
+  const isWeekend = (n) => /^(sat|sun)/i.test(n);
+  const wd = [], we = [];
+  d.days.labels.forEach((l, i) => (isWeekend(l) ? we : wd).push(Number(d.days.values[i]) || 0));
+  if (wd.length && we.length) {
+    const avgWd = sum(wd) / wd.length, avgWe = sum(we) / we.length;
+    const diff = (1 - avgWe / avgWd) * 100;
+    out.push({ icon: "cal", tone: "teal", kicker: "Weekend effect",
+      text: diff >= 0
+        ? `Weekend ridership is <b>${fmt.pct(diff)} lower</b> than on an average weekday.`
+        : `Weekend ridership is <b>${fmt.pct(-diff)} higher</b> than on an average weekday.` });
+  }
+
+  // 3. Top route's share of revenue
+  const revTotal = sum(d.revenue.values);
+  if (d.revenue.labels.length && revTotal) {
+    const share = d.revenue.values[0] / revTotal * 100;
+    out.push({ icon: "pie", tone: "amber", kicker: "Revenue leader",
+      text: `<b>${esc(d.revenue.labels[0])}</b> earns <b>${fmt.inrShort(d.revenue.values[0])}</b>, or <b>${fmt.pct(share)}</b> of total revenue.` });
+  }
+
+  // 4. Route with the highest average delay
+  if (d.delays.labels.length) {
+    const avg = sum(d.delays.values) / d.delays.values.length;
+    out.push({ icon: "timer", tone: "red", kicker: "Punctuality watch",
+      text: `<b>${esc(d.delays.labels[0])}</b> has the highest average delay at <b>${fmt.min(d.delays.values[0])}</b> (network avg ${fmt.min(avg)}).` });
+  }
+
+  $("insights").innerHTML = out.map((x) => `<div class="card insight">
+      <div class="kpi-icon tone-${x.tone}">${ICONS[x.icon]}</div>
+      <div><div class="insight-kicker">${x.kicker}</div><div class="insight-text">${x.text}</div></div>
+    </div>`).join("") || `<div class="card insight"><div class="insight-text">Not enough data to generate insights.</div></div>`;
+}
+
+/* ---------- Header date range ---------- */
+function renderDateRange(daily) {
+  const l = daily.labels;
+  $("dateRangeText").textContent = l.length ? `${fmt.date(l[0])} – ${fmt.date(l[l.length - 1])}` : "No dates";
+}
+
+/* ---------- Ridership charts ---------- */
+function renderHourly(hourly) {
+  const vals = hourly.values.map(Number);
+  const max = Math.max(...vals, 0);
+  // "Peak" = any hour carrying at least 75% of the busiest hour's traffic
+  const colors = vals.map((v) => (v >= max * 0.75 ? COLORS.blue : COLORS.mutedBar));
+  makeChart("hourlyChart", {
+    type: "bar",
+    data: { labels: hourly.labels, datasets: [{ data: vals, backgroundColor: colors, hoverBackgroundColor: COLORS.navy, maxBarThickness: 28 }] },
+    options: {
+      scales: scales({ xFormat: function (v, i) { return i % 2 === 0 ? this.getLabelForValue(v) : ""; } }),
+      plugins: { tooltip: { callbacks: {
+        title: (it) => `${it[0].label} – ${fmt.hour((parseInt(it[0].label, 10) + 1) % 24)}`,
+        label: (c) => `${fmt.num(c.parsed.y)} passengers${c.parsed.y >= max * 0.75 ? "  · peak" : ""}`,
+      } } },
+    },
+  });
+}
+
+function renderDays(days) {
+  const short = days.labels.map((l) => String(l).slice(0, 3));
+  const colors = days.labels.map((l) => (/^(sat|sun)/i.test(l) ? COLORS.teal : COLORS.blue));
+  makeChart("daysChart", {
+    type: "bar",
+    data: { labels: short, datasets: [{ data: days.values, backgroundColor: colors, maxBarThickness: 36 }] },
+    options: {
+      scales: scales(),
+      plugins: { tooltip: { callbacks: {
+        title: (it) => days.labels[it[0].dataIndex],
+        label: (c) => `${fmt.num(c.parsed.y)} passengers`,
+      } } },
+    },
+  });
+}
+
+function movingAverage(values, n = 7) {
+  return values.map((_, i) => {
+    if (i < n - 1) return null;
+    return sum(values.slice(i - n + 1, i + 1)) / n;
+  });
+}
+
+function renderDaily(daily) {
+  const vals = daily.values.map(Number);
+  const ma = movingAverage(vals, 7);
+  const total = sum(vals);
+  $("dailySub").textContent = vals.length
+    ? `Passengers per day · ${fmt.num(vals.length)} days · average ${fmt.num(total / vals.length)} per day`
+    : "Passengers per day";
+
+  const sc = scales({ xFormat: function (v) { return fmt.dateShort(this.getLabelForValue(v)); } });
+  sc.x.ticks.maxTicksLimit = 10;   // keep the date axis readable
+  sc.x.ticks.maxRotation = 0;
+
+  makeChart("dailyChart", {
+    type: "line",
+    data: {
+      labels: daily.labels,
+      datasets: [
+        {
+          label: "Daily passengers", data: vals,
+          borderColor: COLORS.blue, borderWidth: 2, tension: 0.3, pointRadius: 0, pointHoverRadius: 4,
+          pointHoverBackgroundColor: COLORS.blue, fill: true,
+          backgroundColor: (ctx) => {
+            const { chart } = ctx; const { ctx: c, chartArea } = chart;
+            if (!chartArea) return "rgba(37,99,235,.08)";
+            const g = c.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+            g.addColorStop(0, "rgba(37,99,235,.22)");
+            g.addColorStop(1, "rgba(37,99,235,0)");
+            return g;
+          },
+        },
+        {
+          label: "7-day moving average", data: ma,
+          borderColor: COLORS.amber, borderWidth: 2, borderDash: [6, 4], tension: 0.3,
+          pointRadius: 0, pointHoverRadius: 3, fill: false, spanGaps: true,
+        },
+      ],
+    },
+    options: {
+      interaction: { mode: "index", intersect: false },
+      scales: sc,
+      plugins: { tooltip: { displayColors: true, boxPadding: 4, callbacks: {
+        title: (it) => fmt.dateLong(it[0].label),
+        label: (c) => c.parsed.y == null ? null : ` ${c.dataset.label}: ${fmt.num(c.parsed.y)}`,
+      } } },
+    },
+  });
+}
+
+/* ---------- Routes: performance table + revenue doughnut ---------- */
+function buildRouteRows(d) {
+  const pax = Object.fromEntries(d.routes.labels.map((l, i) => [l, Number(d.routes.values[i]) || 0]));
+  const rev = Object.fromEntries(d.revenue.labels.map((l, i) => [l, Number(d.revenue.values[i]) || 0]));
+  const del = Object.fromEntries(d.delays.labels.map((l, i) => [l, Number(d.delays.values[i])]));
+  const ids = [...new Set([...d.routes.labels, ...d.revenue.labels, ...d.delays.labels])].sort();
+  const totalRev = sum(Object.values(rev));
+  ids.forEach((id, i) => { state.routeColor[id] = ROUTE_PALETTE[i % ROUTE_PALETTE.length]; });
+  return ids.map((id) => ({
+    route: id,
+    passengers: pax[id] ?? 0,
+    revenue: rev[id] ?? 0,
+    delay: del[id] ?? null,
+    share: totalRev ? (rev[id] ?? 0) / totalRev * 100 : 0,
+  }));
+}
+
+function renderRouteTable() {
+  const { key, dir } = state.sort;
+  const rows = [...state.routeRows].sort((a, b) => {
+    const x = a[key], y = b[key];
+    const r = typeof x === "string" ? x.localeCompare(y) : (x ?? -Infinity) - (y ?? -Infinity);
+    return dir === "asc" ? r : -r;
+  });
+  const maxShare = Math.max(...rows.map((r) => r.share), 0) || 1;
+
+  document.querySelectorAll("#routeTable th.sortable").forEach((th) => {
+    const active = th.dataset.key === key;
+    th.setAttribute("aria-sort", active ? (dir === "asc" ? "ascending" : "descending") : "none");
+    th.querySelector(".arrow").textContent = active ? (dir === "asc" ? "↑" : "↓") : "↕";
+  });
+
+  $("routeTableBody").innerHTML = rows.length ? rows.map((r) => `<tr>
+      <td><span class="route-chip"><i style="background:${state.routeColor[r.route]}"></i>${esc(r.route)}</span></td>
+      <td class="r num">${fmt.num(r.passengers)}</td>
+      <td class="r num" title="${fmt.inr(r.revenue)}">${fmt.inrShort(r.revenue)}</td>
+      <td class="r">${r.delay == null ? "—" : `<span class="badge ${delayLevel(r.delay)}">${fmt.dec(r.delay)} min</span>`}</td>
+      <td class="r"><div class="share"><div class="share-bar"><div style="width:${(r.share / maxShare * 100).toFixed(1)}%"></div></div><span class="num">${fmt.pct(r.share)}</span></div></td>
+    </tr>`).join("")
+    : `<tr><td colspan="5"><div class="empty"><strong>No route data</strong>Run the MapReduce jobs to populate this table.</div></td></tr>`;
+}
+
+function renderRevenueDoughnut(revenue) {
+  const total = sum(revenue.values);
+  makeChart("revenueChart", {
+    type: "doughnut",
+    data: {
+      labels: revenue.labels,
+      datasets: [{
+        data: revenue.values,
+        backgroundColor: revenue.labels.map((l) => state.routeColor[l] || COLORS.muted),
+        borderColor: "#fff", borderWidth: 2, hoverOffset: 6,
+      }],
+    },
+    plugins: [centerTextPlugin],
+    options: {
+      cutout: "68%",
+      layout: { padding: 4 },
+      plugins: {
+        legend: { display: true, position: "bottom", labels: { usePointStyle: true, pointStyle: "circle", boxWidth: 8, boxHeight: 8, padding: 14 } },
+        centerText: { label: "Total revenue", value: fmt.inrShort(total) },
+        tooltip: { callbacks: {
+          label: (c) => `${fmt.inr(c.parsed)} · ${fmt.pct(total ? c.parsed / total * 100 : 0)}`,
+        } },
+      },
+    },
+  });
+}
+
+/* ---------- Operations ---------- */
+function renderStops(stops) {
+  // Sort descending so the busiest stop is on top
+  const pairs = stops.labels.map((l, i) => [l, Number(stops.values[i]) || 0]).sort((a, b) => b[1] - a[1]);
+  const max = pairs.length ? pairs[0][1] : 0;
+  makeChart("stopsChart", {
+    type: "bar",
+    data: {
+      labels: pairs.map((p) => p[0]),
+      datasets: [{ data: pairs.map((p) => p[1]), backgroundColor: pairs.map((p) => (p[1] === max ? COLORS.navy : COLORS.blue)), maxBarThickness: 18 }],
+    },
+    options: {
+      indexAxis: "y",
+      scales: scales({ horizontal: true }),
+      plugins: { tooltip: { callbacks: { label: (c) => `${fmt.num(c.parsed.x)} passengers` } } },
+    },
+  });
+}
+
+function renderDelays(delays) {
+  const vals = delays.values.map(Number);
+  makeChart("delayChart", {
+    type: "bar",
+    data: {
+      labels: delays.labels,
+      datasets: [{ data: vals, backgroundColor: vals.map((v) => DELAY_COLOR[delayLevel(v)]), maxBarThickness: 36 }],
+    },
+    options: {
+      scales: scales({ yFormat: (v) => v + " min", yMax: 7 }),
+      plugins: { tooltip: { callbacks: {
+        label: (c) => {
+          const lvl = delayLevel(c.parsed.y);
+          return `${fmt.min(c.parsed.y)} · ${lvl === "green" ? "On target" : lvl === "amber" ? "Watch" : "Critical"}`;
+        },
+      } } },
+    },
+  });
+}
+
+/* ---------- Trip records ---------- */
+function populateSelect(sel, items, allLabel) {
+  const prev = sel.value;
+  sel.innerHTML = `<option value="">${allLabel}</option>` + items.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+  if (items.includes(prev)) sel.value = prev;   // keep the user's choice across refreshes
+}
+
+async function loadTrips() {
+  const route = $("routeSelect").value;
+  const stop = $("stopSelect").value;
+  const limit = $("limitSelect").value;
+
+  $("tripBody").innerHTML = skeletonRows(9, 8);
+  $("tripCount").textContent = "Loading trips…";
+
+  const params = new URLSearchParams({ limit });
+  if (route) params.set("route", route);
+  if (stop) params.set("stop", stop);
+
+  const [trips, detail] = await Promise.all([
+    api(`/api/trips?${params.toString()}`),
+    route ? api(`/api/route/${encodeURIComponent(route)}`) : Promise.resolve(null),
+  ]);
+
+  state.trips = Array.isArray(trips) ? trips : [];
+  renderRouteStrip(route, detail);
+  applyTripSearch();
+}
+
+function renderRouteStrip(route, detail) {
+  const strip = $("routeStrip");
+  if (!route || !detail || !detail.stats) {
+    strip.classList.remove("show");
+    destroyChart("sparkChart");
+    return;
+  }
+  const s = detail.stats;
+  $("rsTrips").textContent = fmt.num(s.trips);
+  $("rsPassengers").textContent = fmt.num(s.passengers);
+  $("rsRevenue").textContent = fmt.inrShort(s.revenue);
+  $("rsRevenue").title = fmt.inr(s.revenue);
+  $("rsDelay").textContent = fmt.min(s.avg_delay);
+  $("rsSparkLabel").textContent = `${route} · passengers by hour`;
+  strip.classList.add("show");
+
+  // Fill missing hours with 0 so the sparkline always spans 00–23
+  const byHour = Object.fromEntries((detail.by_hour || []).map((r) => [Number(r.hour), Number(r.passengers) || 0]));
+  const labels = Array.from({ length: 24 }, (_, h) => fmt.hour(h));
+  const data = labels.map((_, h) => byHour[h] ?? 0);
+
+  makeChart("sparkChart", {
+    type: "line",
+    data: { labels, datasets: [{ data, borderColor: COLORS.blue, borderWidth: 2, tension: 0.35, pointRadius: 0, pointHoverRadius: 3,
+      fill: true, backgroundColor: "rgba(37,99,235,.10)" }] },
+    options: {
+      animation: { duration: 400 },
+      interaction: { mode: "index", intersect: false },
+      layout: { padding: { top: 2, bottom: 2 } },
+      scales: { x: { display: false }, y: { display: false, beginAtZero: true } },
+      plugins: { tooltip: { callbacks: { label: (c) => `${fmt.num(c.parsed.y)} passengers` } } },
+    },
+  });
+}
+
+function applyTripSearch() {
+  const q = $("searchInput").value.trim().toLowerCase();
+  state.visibleTrips = q
+    ? state.trips.filter((t) => Object.values(t).some((v) => String(v ?? "").toLowerCase().includes(q)))
+    : state.trips;
+  renderTripTable();
+}
+
+function renderTripTable() {
+  const rows = state.visibleTrips;
+  const body = $("tripBody");
+  if (!rows.length) {
+    const searching = $("searchInput").value.trim();
+    body.innerHTML = `<tr><td colspan="9"><div class="empty">${ICONS.inbox}
+      <strong>No trips found</strong>${searching ? "No loaded rows match your search. Try a different term." : "No trips match the selected filters."}</div></td></tr>`;
+  } else {
+    body.innerHTML = rows.map((t) => {
+      const lvl = delayLevel(Number(t.delay_min));
+      return `<tr>
+        <td class="mono">${esc(t.trip_id)}</td>
+        <td>${esc(fmt.date(t.trip_date))}</td>
+        <td>${esc(t.day_of_week)}</td>
+        <td class="r num">${fmt.hour(t.hour)}</td>
+        <td><span class="route-chip"><i style="background:${state.routeColor[t.route_id] || COLORS.muted}"></i>${esc(t.route_id)}</span></td>
+        <td>${esc(t.stop_name)}</td>
+        <td class="r num">${fmt.num(t.passengers)}</td>
+        <td class="r num">${fmt.inr(t.fare)}</td>
+        <td class="r"><span class="badge ${lvl}">${esc(t.delay_min)} min</span></td>
+      </tr>`;
+    }).join("");
+  }
+  const total = state.trips.length;
+  $("tripCount").textContent = rows.length === total
+    ? `Showing ${fmt.num(total)} trip${total === 1 ? "" : "s"}`
+    : `Showing ${fmt.num(rows.length)} of ${fmt.num(total)} loaded trips`;
+}
+
+function exportCsv() {
+  const rows = state.visibleTrips;
+  if (!rows.length) return;
+  const cols = ["trip_id", "trip_date", "day_of_week", "hour", "route_id", "stop_name", "passengers", "fare", "delay_min"];
+  const q = (v) => { const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const csv = [cols.join(","), ...rows.map((r) => cols.map((c) => q(r[c])).join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const route = $("routeSelect").value || "all-routes";
+  a.href = url;
+  a.download = `transitiq_trips_${route}_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/* ---------- Data pipeline ---------- */
+const JOB_NAMES = {
+  hourly: "Hourly ridership", route: "Route ridership", revenue: "Route revenue",
+  stop: "Stop ridership", day: "Weekday ridership", daily: "Daily ridership", delay: "Route average delay",
+};
+
+function formatRunAt(s) {
+  // SQLite CURRENT_TIMESTAMP is UTC "YYYY-MM-DD HH:MM:SS"
+  const d = new Date(String(s).replace(" ", "T") + "Z");
+  if (isNaN(d)) return esc(s);
+  return d.toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
+}
+
+function renderPipeline(d) {
+  $("pCsv").textContent = `${fmt.num(d.summary.total_trips)} trip records`;
+  $("pMr").textContent = `${d.jobs.length} jobs · SUM & AVG reducers`;
+
+  $("jobsBody").innerHTML = d.jobs.length ? d.jobs.map((j) => {
+    const avg = j.job_name === "delay";
+    return `<tr>
+      <td><div class="strong" style="color:#0F172A;font-weight:600">${esc(JOB_NAMES[j.job_name] || j.job_name)}</div><div class="mono" style="color:#64748B">${esc(j.job_name)}</div></td>
+      <td><span class="badge ${avg ? "amber" : "blue"}">${avg ? "AVG" : "SUM"}</span></td>
+      <td class="r num">${fmt.num(j.keys_out)}</td>
+      <td>${formatRunAt(j.run_at)}</td>
+      <td><span class="badge green"><span class="dot"></span>Completed</span></td>
+    </tr>`;
+  }).join("") : `<tr><td colspan="5"><div class="empty"><strong>No job runs recorded</strong>Run python run_all.py to execute the pipeline.</div></td></tr>`;
+}
+
+/* =====================================================================
+   7. DATA LOADING
+   ===================================================================== */
+async function loadDashboard() {
+  const endpoints = ["summary", "hourly", "routes", "revenue", "stops", "days", "daily", "delays", "route-list", "jobs"];
+  const results = await Promise.all(endpoints.map((e) => api(`/api/${e}`)));
+  const d = {};
+  endpoints.forEach((e, i) => { d[e === "route-list" ? "routeList" : e] = results[i]; });
+
+  renderDateRange(d.daily);
+  renderKpis(d);
+  renderInsights(d);
+  renderHourly(d.hourly);
+  renderDays(d.days);
+  renderDaily(d.daily);
+
+  state.routeRows = buildRouteRows(d);
+  renderRouteTable();
+  renderRevenueDoughnut(d.revenue);
+
+  renderStops(d.stops);
+  renderDelays(d.delays);
+
+  populateSelect($("routeSelect"), d.routeList, "All routes");
+  populateSelect($("stopSelect"), [...d.stops.labels].sort(), "All stops");
+
+  renderPipeline(d);
+}
+
+/** Reload everything (initial load + Refresh button) */
+async function refresh() {
+  if (state.loading) return;
+  hideError();
+  setStatus("loading");
+  setLoading(true);
+  try {
+    // Dashboard data (10 endpoints in parallel) and trip records load side by side
+    await Promise.all([loadDashboard(), loadTrips()]);
+    // Trips may have rendered before route colours were known; redraw once
+    renderTripTable();
+    setStatus("ok");
+    $("lastUpdated").textContent = "Last updated " + new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  } catch (err) {
+    showError(err);
+  } finally {
+    setLoading(false);
+  }
+}
+
+/** Reload only the trip table (filters changed) */
+async function reloadTrips() {
+  try {
+    await loadTrips();
+    hideError();
+  } catch (err) {
+    showError(err);
+  }
+}
+
+/* =====================================================================
+   8. NAVIGATION (scroll-spy)
+   ===================================================================== */
+function setupNav() {
+  const links = [...document.querySelectorAll("#nav a")];
+  const byId = Object.fromEntries(links.map((a) => [a.dataset.section, a]));
+  const setActive = (id) => links.forEach((a) => a.classList.toggle("active", a.dataset.section === id));
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach((e) => { if (e.isIntersecting && byId[e.target.id]) setActive(e.target.id); });
+  }, { rootMargin: "-35% 0px -60% 0px", threshold: 0 });
+  document.querySelectorAll("main section[id]").forEach((s) => observer.observe(s));
+
+  // At the very bottom, the last section may never reach the observer band
+  window.addEventListener("scroll", () => {
+    if (window.innerHeight + window.scrollY >= document.body.scrollHeight - 4) setActive("pipeline");
+  }, { passive: true });
+
+  links.forEach((a) => a.addEventListener("click", () => setActive(a.dataset.section)));
+}
+
+/* =====================================================================
+   9. INIT
+   ===================================================================== */
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+
+function init() {
+  setupNav();
+
+  $("refreshBtn").addEventListener("click", refresh);
+  $("retryBtn").addEventListener("click", refresh);
+
+  document.querySelectorAll("#routeTable th.sortable").forEach((th) => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.key;
+      state.sort = state.sort.key === key
+        ? { key, dir: state.sort.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: key === "route" ? "asc" : "desc" };
+      renderRouteTable();
+    });
+  });
+
+  $("routeSelect").addEventListener("change", reloadTrips);
+  $("stopSelect").addEventListener("change", reloadTrips);
+  $("limitSelect").addEventListener("change", reloadTrips);
+  $("searchInput").addEventListener("input", debounce(applyTripSearch, 150));
+  $("exportBtn").addEventListener("click", exportCsv);
+
+  if (typeof Chart === "undefined") {
+    showError(new Error("Chart.js could not be loaded from the CDN – check your internet connection."));
+    return;
+  }
+  setupChartDefaults();
+  refresh();
+}
+
+document.addEventListener("DOMContentLoaded", init);
+</script>
+</body>
+</html>
